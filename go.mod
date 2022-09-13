@@ -1,4 +1,4 @@
-module concurrency
+module github.com/jxust-xiaoxiong/concurrency
 
 go 1.16
 
