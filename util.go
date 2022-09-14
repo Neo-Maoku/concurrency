@@ -11,18 +11,30 @@ import (
 //debug=2,info=1
 func (c *Concurrency) logDebug(format string, v ...interface{}) {
 	if c.LogLevel >= 2 {
-		fmt.Println(fmt.Sprintf(format, v...))
+		if v == nil {
+			fmt.Println(format)
+		} else {
+			fmt.Println(fmt.Sprintf(format, v...))
+		}
 	}
 }
 
 func (c *Concurrency) logInfo(format string, v ...interface{}) {
 	if c.LogLevel >= 1 {
-		fmt.Println(fmt.Sprintf(format, v...))
+		if v == nil {
+			fmt.Println(format)
+		} else {
+			fmt.Println(fmt.Sprintf(format, v...))
+		}
 	}
 }
 
 func (c *Concurrency) logFault(format string, v ...interface{}) {
-	log.Fatal(fmt.Sprintf(format, v...))
+	if v == nil {
+		log.Fatal(format)
+	} else {
+		log.Fatal(fmt.Sprintf(format, v...))
+	}
 }
 
 func (c *Concurrency) initProgress() {
@@ -64,7 +76,7 @@ func (c *Concurrency) progressPrint(taskName string, taskFinishNum, taskTotalNum
 		if taskFinishNum == taskTotalNum {
 			c.logInfo(fmt.Sprintf("(%s) completed at %s, Takes %s times", taskName, time.Now().Format("15:04:05"), time.Now().Sub(c.startTime)))
 		} else {
-			c.logInfo(fmt.Sprintf("(%s) progress: %d / %d percentage: %d%%", taskName, taskFinishNum, taskTotalNum, index*10))
+			c.logInfo(fmt.Sprintf("(%s) progress: %d/%d percentage: %d%%", taskName, taskFinishNum, taskTotalNum, index*10))
 		}
 	}
 }

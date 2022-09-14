@@ -10,8 +10,8 @@ import (
 )
 
 type Range struct {
-	LVaule int
-	RVaule int
+	LValue int
+	RValue int
 }
 
 type goroutineParam struct {
@@ -37,18 +37,20 @@ type Concurrency struct {
 	GoroutineNum        int
 	SysMonitor          bool
 	TaskTimeOut         int
-	LogLevel			int
+	LogLevel            int
 	isGroupCountInt     bool
 	isGroupTimeSleepInt bool
 	isTaskTimeSleepInt  bool
 	taskStopSleep       bool
 	startTime           time.Time
 	progressMap         map[int]bool
+	taskName            string
 }
 
 func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 	stopMem := false
 	maxGoroutineNum := c.GoroutineNumLimit
+	taskName := c.taskName
 
 	for {
 		if p.IsClosed() {
@@ -59,30 +61,39 @@ func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 			length := p.Cap()
 			if stopMem == false {
 				mem := getMemPercent()
-				if mem > 80 {
-					p.Tune(int(math.Ceil(float64(length) / 10.0 * 9)))
-					c.logDebug("mem dec:%d", int(math.Ceil(float64(length)/10.0*9)))
-				} else if mem < 70 {
-					GoroutineCount := int(math.Ceil(float64(length) / 10.0 * 11))
-					if GoroutineCount > maxGoroutineNum {
-						GoroutineCount = maxGoroutineNum
-					}
-					p.Tune(GoroutineCount)
+				c.logDebug("(%s) Concurrency mem:%f", taskName, mem)
 
-					c.logDebug("mem inc:%d", GoroutineCount)
+				if mem > 80 {
+					goroutineCount := int(math.Ceil(float64(length) / 10.0 * 9))
+					if goroutineCount < 1 {
+						goroutineCount = 1
+					}
+					p.Tune(goroutineCount)
+					c.logDebug("(%s) Concurrency mem dec, goroutinePoolCount:%d", taskName, goroutineCount)
+				} else if mem < 70 {
+					goroutineCount := int(math.Ceil(float64(length) / 10.0 * 11))
+					if goroutineCount > maxGoroutineNum {
+						goroutineCount = maxGoroutineNum
+					}
+					p.Tune(goroutineCount)
+
+					c.logDebug("(%s) Concurrency mem inc, goroutinePoolCount:%d", taskName, goroutineCount)
 				}
 			}
 
 			cpu := getCpuPercent()
-			c.logDebug("cpu:%f", cpu)
+			c.logDebug("(%s) Concurrency cpu:%f", taskName, cpu)
+
 			if cpu != 0 {
 				if cpu > 70 {
 					stopMem = true
-					GoroutineCount := int(math.Ceil(float64(length) / 10.0 * 9))
+					goroutineCount := int(math.Floor(float64(length) / 10.0 * 9))
+					if goroutineCount < 1 {
+						goroutineCount = 1
+					}
+					p.Tune(goroutineCount)
 
-					p.Tune(GoroutineCount)
-
-					c.logDebug("cpu dec:%d", GoroutineCount)
+					c.logDebug("(%s) Concurrency cpu dec, goroutinePoolCount:%d", taskName, goroutineCount)
 				} else if cpu > 60 {
 					stopMem = true
 				} else {
@@ -93,7 +104,7 @@ func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 					}
 					p.Tune(GoroutineCount)
 
-					c.logDebug("cpu inc:%d", GoroutineCount)
+					c.logDebug("(%s) Concurrency cpu inc, goroutinePoolCount:%d", taskName, GoroutineCount)
 				}
 			}
 		}
@@ -109,7 +120,7 @@ func (c *Concurrency) task(taskInterface interface{}) {
 		if c.isTaskTimeSleepInt {
 			taskTimeSleepResult = taskObj.TaskTimeSleep.(int)
 		} else {
-			taskTimeSleepResult = rand.Intn(taskObj.TaskTimeSleep.(Range).RVaule-taskObj.TaskTimeSleep.(Range).LVaule) + taskObj.TaskTimeSleep.(Range).LVaule
+			taskTimeSleepResult = rand.Intn(taskObj.TaskTimeSleep.(Range).RValue-taskObj.TaskTimeSleep.(Range).LValue) + taskObj.TaskTimeSleep.(Range).LValue
 		}
 		if taskTimeSleepResult != 0 {
 			time.Sleep(time.Duration(taskTimeSleepResult) * time.Millisecond)
@@ -142,6 +153,7 @@ func (c *Concurrency) Run(taskParam TaskParam) (results []interface{}) {
 	_, c.isGroupCountInt = c.TaskGroupCount.(int)
 	_, c.isGroupTimeSleepInt = c.TaskGroupTimeSleep.(int)
 	_, c.isTaskTimeSleepInt = c.TaskTimeSleep.(int)
+	c.taskName = taskParam.TaskName
 
 	p, err := ants.NewPoolWithFunc(c.GoroutineNum, c.task, ants.WithPreAlloc(false))
 	if err != nil {
@@ -163,15 +175,15 @@ func (c *Concurrency) Run(taskParam TaskParam) (results []interface{}) {
 	for _, param := range taskParam.ConcurrencyParams {
 		taskFinishNum++
 
+		if taskTotalNum > 10 && taskFinishNum != taskTotalNum {
+			c.progressPrint(taskParam.TaskName, taskFinishNum, taskTotalNum)
+		}
+
 		if count == taskGroupCountResult && taskGroupCountResult != 0 {
 			c.taskStopSleep = true
 			count = 0
 			if taskGroupTimeSleepResult != 0 {
 				time.Sleep(time.Duration(taskGroupTimeSleepResult) * time.Millisecond)
-			}
-
-			if taskFinishNum != taskTotalNum {
-				c.progressPrint(taskParam.TaskName, taskFinishNum, taskTotalNum)
 			}
 
 			taskGroupCountResult, taskGroupTimeSleepResult = c.switchGoroutineVaule()
@@ -197,31 +209,31 @@ func (c *Concurrency) switchGoroutineVaule() (taskGroupCountResult, taskGroupTim
 	if c.isGroupCountInt {
 		taskGroupCountResult = c.TaskGroupCount.(int)
 	} else {
-		taskGroupCountResult = rand.Intn(c.TaskGroupCount.(Range).RVaule-c.TaskGroupCount.(Range).LVaule) + c.TaskGroupCount.(Range).LVaule
+		taskGroupCountResult = rand.Intn(c.TaskGroupCount.(Range).RValue-c.TaskGroupCount.(Range).LValue) + c.TaskGroupCount.(Range).LValue
 	}
 
 	if c.isGroupTimeSleepInt {
 		taskGroupTimeSleepResult = c.TaskGroupTimeSleep.(int)
 	} else {
-		taskGroupTimeSleepResult = rand.Intn(c.TaskGroupTimeSleep.(Range).RVaule-c.TaskGroupTimeSleep.(Range).LVaule) + c.TaskGroupTimeSleep.(Range).LVaule
+		taskGroupTimeSleepResult = rand.Intn(c.TaskGroupTimeSleep.(Range).RValue-c.TaskGroupTimeSleep.(Range).LValue) + c.TaskGroupTimeSleep.(Range).LValue
 	}
 	return
 }
 
 func New() *Concurrency {
-	return NewConcurrency(Concurrency{LogLevel:1, SysMonitor:true})
+	return NewConcurrency(Concurrency{LogLevel: 1, SysMonitor: true})
 }
 
 func NewConcurrency(c Concurrency) *Concurrency {
 	var tmp = Concurrency{
-		TaskGroupCount :1000,
-		TaskTimeSleep      :Range{LVaule: 0,RVaule: 300},
-		TaskGroupTimeSleep  :1000,
-		GoroutineNumLimit   :5000,
-		GoroutineNum        :3000,
-		SysMonitor          :false,
-		TaskTimeOut         :5000,
-		LogLevel			:0,
+		TaskGroupCount:     1000,
+		TaskTimeSleep:      Range{LValue: 0, RValue: 300},
+		TaskGroupTimeSleep: 1500,
+		GoroutineNumLimit:  5000,
+		GoroutineNum:       3000,
+		SysMonitor:         false,
+		TaskTimeOut:        15000,
+		LogLevel:           0,
 	}
 
 	if c.TaskGroupCount != nil {
