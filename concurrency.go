@@ -38,7 +38,7 @@ type Task struct {
 type Concurrency struct {
 	TaskGroupCount      interface{} //每组协程数量，可以是固定值或区间。默认值为1000
 	TaskTimeSleep       Range       //错峰执行的时间范围，单位为ms。默认值为0-300
-	TaskGroupTimeSleep  interface{} //每组协程数执行完后的暂停时间，可以是固定值或区间，单位为ms，默认值为1500
+	TaskGroupTimeSleep  interface{} //每组协程数执行完后的暂停时间，可以是固定值或区间，单位为ms，默认值为1500.当TaskGroupCount大于0时才生效
 	GoroutineNumLimit   int         //最大并发协程数，默认值为5000
 	GoroutineNum        int         //初始并发协程数，小于等于GoroutineNumLimit，默认值为3000
 	SysMonitor          bool        //是否需要监控cpu占用率，默认是开启的
