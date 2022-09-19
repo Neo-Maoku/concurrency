@@ -14,41 +14,45 @@ type Range struct {
 	RValue int
 }
 
-type goroutineParam struct {
-	Param         interface{}
-	Result        *[]interface{}
-	Wg            *sync.WaitGroup
-	TaskFunc      func(interface{}, *[]interface{})
-	TaskTimeSleep interface{}
-	TaskTimeOut   int
+type ParamsFunc interface {
+	ParamsCreate(ch chan interface{}, taskTotal chan int)
 }
 
-type TaskParam struct {
-	ConcurrencyParams []interface{}
-	TaskFunc          func(interface{}, *[]interface{})
-	TaskName          string
+//并发执行任务的单个参数结构
+type goroutineParam struct {
+	Param         interface{}                       //协程执行需要的参数
+	Result        *[]interface{}                    //协程执行结果
+	Wg            *sync.WaitGroup                   //协程同步信号量
+	TaskFunc      func(interface{}, *[]interface{}) //要并发执行的任务函数
+	TaskTimeSleep Range                             //错峰执行的时间范围，单位为ms
+	TaskTimeOut   int                               //协程执行超时时间，单位为ms
+}
+
+type Task struct {
+	TaskParamsFunc ParamsFunc
+	TaskParams []interface{}                     //任务参数集合
+	TaskFunc   func(interface{}, *[]interface{}) //要执行的任务函数体
+	TaskName   string                            //任务名
 }
 
 type Concurrency struct {
-	TaskGroupCount      interface{}
-	TaskTimeSleep       interface{}
-	TaskGroupTimeSleep  interface{}
-	GoroutineNumLimit   int
-	GoroutineNum        int
-	SysMonitor          bool
-	TaskTimeOut         int
-	LogLevel            int
-	isGroupCountInt     bool
-	isGroupTimeSleepInt bool
-	isTaskTimeSleepInt  bool
-	taskStopSleep       bool
-	startTime           time.Time
-	progressMap         map[int]bool
-	taskName            string
+	TaskGroupCount      interface{} //每组协程数量，可以是固定值或区间。默认值为1000
+	TaskTimeSleep       Range       //错峰执行的时间范围，单位为ms。默认值为0-300
+	TaskGroupTimeSleep  interface{} //每组协程数执行完后的暂停时间，可以是固定值或区间，单位为ms，默认值为1500
+	GoroutineNumLimit   int         //最大并发协程数，默认值为5000
+	GoroutineNum        int         //初始并发协程数，小于等于GoroutineNumLimit，默认值为3000
+	SysMonitor          bool        //是否需要监控cpu占用率，默认是开启的
+	TaskTimeOut         int         //协程执行超时时间，单位为ms,默认值为15000
+	LogLevel            int         //控制台打印等级，0:不输出任何信息，1:输出任务进度信息，>=2:输出所有信息。默认值为1
+	isGroupCountInt     bool        //判断TaskGroupCount类型
+	isGroupTimeSleepInt bool        //判断TaskGroupTimeSleep类型
+	taskStopSleep       bool        //判断是否处于暂停时间，用于和cpu监控联动
+	startTime           time.Time   //记录任务完成时，耗时情况
+	taskName            string      //任务名
 }
 
+//性能监控（cpu占用率），当cpu>70，线程池在原有基础上降低10%。当cpu<60,线程池在原有基础上增加10%。
 func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
-	stopMem := false
 	maxGoroutineNum := c.GoroutineNumLimit
 	taskName := c.taskName
 
@@ -59,34 +63,12 @@ func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 
 		if !c.taskStopSleep {
 			length := p.Cap()
-			if stopMem == false {
-				mem := getMemPercent()
-				c.logDebug("(%s) Concurrency mem:%f", taskName, mem)
-
-				if mem > 80 {
-					goroutineCount := int(math.Ceil(float64(length) / 10.0 * 9))
-					if goroutineCount < 1 {
-						goroutineCount = 1
-					}
-					p.Tune(goroutineCount)
-					c.logDebug("(%s) Concurrency mem dec, goroutinePoolCount:%d", taskName, goroutineCount)
-				} else if mem < 70 {
-					goroutineCount := int(math.Ceil(float64(length) / 10.0 * 11))
-					if goroutineCount > maxGoroutineNum {
-						goroutineCount = maxGoroutineNum
-					}
-					p.Tune(goroutineCount)
-
-					c.logDebug("(%s) Concurrency mem inc, goroutinePoolCount:%d", taskName, goroutineCount)
-				}
-			}
 
 			cpu := getCpuPercent()
 			c.logDebug("(%s) Concurrency cpu:%f", taskName, cpu)
 
 			if cpu != 0 {
 				if cpu > 70 {
-					stopMem = true
 					goroutineCount := int(math.Floor(float64(length) / 10.0 * 9))
 					if goroutineCount < 1 {
 						goroutineCount = 1
@@ -94,9 +76,7 @@ func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 					p.Tune(goroutineCount)
 
 					c.logDebug("(%s) Concurrency cpu dec, goroutinePoolCount:%d", taskName, goroutineCount)
-				} else if cpu > 60 {
-					stopMem = true
-				} else {
+				} else if cpu <= 60 {
 					GoroutineCount := int(math.Ceil(float64(length) / 10.0 * 11))
 
 					if GoroutineCount > maxGoroutineNum {
@@ -115,14 +95,8 @@ func (c *Concurrency) task(taskInterface interface{}) {
 	taskObj, ok := taskInterface.(goroutineParam)
 
 	if ok {
-		var taskTimeSleepResult int
-
-		if c.isTaskTimeSleepInt {
-			taskTimeSleepResult = taskObj.TaskTimeSleep.(int)
-		} else {
-			taskTimeSleepResult = rand.Intn(taskObj.TaskTimeSleep.(Range).RValue-taskObj.TaskTimeSleep.(Range).LValue) + taskObj.TaskTimeSleep.(Range).LValue
-		}
-		if taskTimeSleepResult != 0 {
+		if taskObj.TaskTimeSleep.RValue != 0 {
+			taskTimeSleepResult := rand.Intn(taskObj.TaskTimeSleep.RValue-taskObj.TaskTimeSleep.LValue) + taskObj.TaskTimeSleep.LValue
 			time.Sleep(time.Duration(taskTimeSleepResult) * time.Millisecond)
 		}
 
@@ -145,15 +119,19 @@ func (c *Concurrency) task(taskInterface interface{}) {
 	}
 }
 
-func (c *Concurrency) Run(taskParam TaskParam) (results []interface{}) {
+func (c *Concurrency) Run(task Task) (results []interface{}) {
 	var wg = &sync.WaitGroup{}
 	var taskFinishNum = 0
-	var taskTotalNum = len(taskParam.ConcurrencyParams)
+	var taskTotalNum = len(task.TaskParams)
+	var count = 0
 
 	_, c.isGroupCountInt = c.TaskGroupCount.(int)
 	_, c.isGroupTimeSleepInt = c.TaskGroupTimeSleep.(int)
-	_, c.isTaskTimeSleepInt = c.TaskTimeSleep.(int)
-	c.taskName = taskParam.TaskName
+	c.taskName = "Task"
+	if task.TaskName != "" {
+		c.taskName = task.TaskName
+	}
+	c.startTime = time.Now()
 
 	p, err := ants.NewPoolWithFunc(c.GoroutineNum, c.task, ants.WithPreAlloc(false))
 	if err != nil {
@@ -161,22 +139,32 @@ func (c *Concurrency) Run(taskParam TaskParam) (results []interface{}) {
 	}
 	defer p.Release()
 
-	c.initProgress()
-	c.startTime = time.Now()
-
 	if c.SysMonitor {
 		go c.perfMonitor(p)
 	}
 
-	taskGroupCountResult, taskGroupTimeSleepResult := c.switchGoroutineVaule()
+	taskGroupCountResult, taskGroupTimeSleepResult := c.switchGoroutineValue()
+
+	var ch = make(chan interface{}, 10000)
+	if taskTotalNum == 0 {
+		var taskTotal = make(chan int)
+
+		go task.TaskParamsFunc.ParamsCreate(ch, taskTotal)
+
+		taskTotalNum = <- taskTotal
+	} else {
+		close(ch)
+	}
+
+	progress := c.initProgress(taskTotalNum)
 
 	wg.Add(taskTotalNum)
-	var count = 0
-	for _, param := range taskParam.ConcurrencyParams {
+
+	workFunc := func (param interface{}){
 		taskFinishNum++
 
-		if taskTotalNum > 10 && taskFinishNum != taskTotalNum {
-			c.progressPrint(taskParam.TaskName, taskFinishNum, taskTotalNum)
+		if taskTotalNum >= 10 && taskFinishNum != taskTotalNum {
+			c.progressPrint(taskFinishNum, progress)
 		}
 
 		if count == taskGroupCountResult && taskGroupCountResult != 0 {
@@ -186,25 +174,42 @@ func (c *Concurrency) Run(taskParam TaskParam) (results []interface{}) {
 				time.Sleep(time.Duration(taskGroupTimeSleepResult) * time.Millisecond)
 			}
 
-			taskGroupCountResult, taskGroupTimeSleepResult = c.switchGoroutineVaule()
+			taskGroupCountResult, taskGroupTimeSleepResult = c.switchGoroutineValue()
 
 			c.taskStopSleep = false
 		}
 
-		if err := p.Invoke(goroutineParam{Param: param, Result: &results, Wg: wg, TaskFunc: taskParam.TaskFunc, TaskTimeSleep: c.TaskTimeSleep, TaskTimeOut: c.TaskTimeOut}); err != nil {
+		if err := p.Invoke(goroutineParam{Param: param, Result: &results, Wg: wg, TaskFunc: task.TaskFunc, TaskTimeSleep: c.TaskTimeSleep, TaskTimeOut: c.TaskTimeOut}); err != nil {
 			c.logFault("newPoolWithFunc invoke fail")
 		}
 
 		count++
 	}
+
+	if len(task.TaskParams) > 0 {
+		for _, param := range task.TaskParams {
+			workFunc(param)
+		}
+	} else {
+		for {
+			param, ok := <-ch
+			if !ok {
+				break
+			}
+			workFunc(param)
+		}
+	}
+
 	wg.Wait()
 
-	c.progressPrint(taskParam.TaskName, taskTotalNum, taskTotalNum)
+	if taskTotalNum > 0 {
+		c.progressPrint(taskTotalNum, progress)
+	}
 
 	return results
 }
 
-func (c *Concurrency) switchGoroutineVaule() (taskGroupCountResult, taskGroupTimeSleepResult int) {
+func (c *Concurrency) switchGoroutineValue() (taskGroupCountResult, taskGroupTimeSleepResult int) {
 	rand.Seed(time.Now().UnixNano())
 	if c.isGroupCountInt {
 		taskGroupCountResult = c.TaskGroupCount.(int)
@@ -221,7 +226,7 @@ func (c *Concurrency) switchGoroutineVaule() (taskGroupCountResult, taskGroupTim
 }
 
 func New() *Concurrency {
-	return NewConcurrency(Concurrency{LogLevel: 1, SysMonitor: true})
+	return NewConcurrency(Concurrency{LogLevel: 1, SysMonitor: true, TaskTimeSleep: Range{LValue: 0, RValue: 300}})
 }
 
 func NewConcurrency(c Concurrency) *Concurrency {
@@ -239,9 +244,6 @@ func NewConcurrency(c Concurrency) *Concurrency {
 	if c.TaskGroupCount != nil {
 		tmp.TaskGroupCount = c.TaskGroupCount
 	}
-	if c.TaskTimeSleep != nil {
-		tmp.TaskTimeSleep = c.TaskTimeSleep
-	}
 	if c.TaskGroupTimeSleep != nil {
 		tmp.TaskGroupTimeSleep = c.TaskGroupTimeSleep
 	}
@@ -256,6 +258,7 @@ func NewConcurrency(c Concurrency) *Concurrency {
 	}
 	tmp.LogLevel = c.LogLevel
 	tmp.SysMonitor = c.SysMonitor
+	tmp.TaskTimeSleep = c.TaskTimeSleep
 
 	return &tmp
 }
