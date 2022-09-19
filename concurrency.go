@@ -14,6 +14,7 @@ type Range struct {
 	RValue int
 }
 
+//任务参数生成接口
 type ParamsFunc interface {
 	ParamsCreate(ch chan interface{}, taskTotal chan int)
 }
@@ -29,10 +30,10 @@ type goroutineParam struct {
 }
 
 type Task struct {
-	TaskParamsFunc ParamsFunc
-	TaskParams []interface{}                     //任务参数集合
-	TaskFunc   func(interface{}, *[]interface{}) //要执行的任务函数体
-	TaskName   string                            //任务名
+	TaskParamsFunc ParamsFunc                        //任务参数生成的接口函数
+	TaskParams     []interface{}                     //任务参数集合
+	TaskFunc       func(interface{}, *[]interface{}) //要执行的任务函数体
+	TaskName       string                            //任务名
 }
 
 type Concurrency struct {
@@ -151,7 +152,7 @@ func (c *Concurrency) Run(task Task) (results []interface{}) {
 
 		go task.TaskParamsFunc.ParamsCreate(ch, taskTotal)
 
-		taskTotalNum = <- taskTotal
+		taskTotalNum = <-taskTotal
 	} else {
 		close(ch)
 	}
@@ -160,7 +161,7 @@ func (c *Concurrency) Run(task Task) (results []interface{}) {
 
 	wg.Add(taskTotalNum)
 
-	workFunc := func (param interface{}){
+	workFunc := func(param interface{}) {
 		taskFinishNum++
 
 		if taskTotalNum >= 10 && taskFinishNum != taskTotalNum {
