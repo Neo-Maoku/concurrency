@@ -1,9 +1,5 @@
----
-typora-root-url: imgs
----
-
 # concurrency
-![ants](https://img.shields.io/static/v1?label=ants&message=v2.5.0&color=blue)![ants](https://img.shields.io/static/v1?label=gopsutil&message=v3.22.8&color=blue)![Language](https://img.shields.io/badge/language-Go-green) 
+![ants](https://img.shields.io/static/v1?label=ants&message=v2.5.0&color=blue) ![ants](https://img.shields.io/static/v1?label=gopsutil&message=v3.22.8&color=blue) ![Language](https://img.shields.io/badge/language-Go-green) 
 
 ### 简介
 
@@ -145,15 +141,15 @@ go get -u github.com/jxust-xiaoxiong/concurrency
 
 端口扫描
 
-![image-20220919130137732](/image-20220919130137732.png)
+![image-20220919130137732](./imgs/image-20220919130137732.png)
 
 服务识别
 
-![image-20220919130300050](/image-20220919130300050.png)
+![image-20220919130300050](./imgs/image-20220919130300050.png)
 
 web探测
 
-![image-20220919130359709](/image-20220919130359709.png)
+![image-20220919130359709](./imgs/image-20220919130359709.png)
 
 ---
 
