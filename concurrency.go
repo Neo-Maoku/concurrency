@@ -2,6 +2,7 @@ package concurrency
 
 import (
 	"context"
+	"fmt"
 	"github.com/panjf2000/ants/v2"
 	"math"
 	"math/rand"
@@ -14,7 +15,6 @@ type Range struct {
 	RValue int
 }
 
-//任务参数生成接口
 type ParamsFunc interface {
 	ParamsCreate(ch chan interface{}, taskTotal chan int)
 }
@@ -137,8 +137,9 @@ func (c *Concurrency) Run(task Task) (results []interface{}) {
 	p, err := ants.NewPoolWithFunc(c.GoroutineNum, c.task, ants.WithPreAlloc(false))
 	if err != nil {
 		c.logFault("NewPoolWithFunc fail")
+	} else {
+		defer p.Release()
 	}
-	defer p.Release()
 
 	if c.SysMonitor {
 		go c.perfMonitor(p)
@@ -148,13 +149,25 @@ func (c *Concurrency) Run(task Task) (results []interface{}) {
 
 	var ch = make(chan interface{}, 10000)
 	if taskTotalNum == 0 {
-		var taskTotal = make(chan int)
+		if task.TaskParamsFunc != nil {
+			var taskTotal = make(chan int)
 
-		go task.TaskParamsFunc.ParamsCreate(ch, taskTotal)
+			go task.TaskParamsFunc.ParamsCreate(ch, taskTotal)
 
-		taskTotalNum = <-taskTotal
+			taskTotalNum = <-taskTotal
+		}
 	} else {
 		close(ch)
+	}
+
+	if taskTotalNum == 0 {
+		c.logInfo(fmt.Sprintf("(%s) Warn: TaskNum is Zero", c.taskName))
+		return nil
+	}
+
+	var isShowProgress = false
+	if taskTotalNum / taskGroupCountResult >= 10 {
+		isShowProgress = true
 	}
 
 	progress := c.initProgress(taskTotalNum)
@@ -164,7 +177,7 @@ func (c *Concurrency) Run(task Task) (results []interface{}) {
 	workFunc := func(param interface{}) {
 		taskFinishNum++
 
-		if taskTotalNum >= 10 && taskFinishNum != taskTotalNum {
+		if isShowProgress && taskFinishNum != taskTotalNum {
 			c.progressPrint(taskFinishNum, progress)
 		}
 
@@ -203,9 +216,7 @@ func (c *Concurrency) Run(task Task) (results []interface{}) {
 
 	wg.Wait()
 
-	if taskTotalNum > 0 {
-		c.progressPrint(taskTotalNum, progress)
-	}
+	c.progressPrint(taskTotalNum, progress)
 
 	return results
 }
