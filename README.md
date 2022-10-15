@@ -57,6 +57,7 @@ go get -u github.com/jxust-xiaoxiong/concurrency
    			SysMonitor:         true,
    			TaskTimeOut:        7500,
    			LogLevel:           0,
+       		CPUInfo:            CPUParam{CPULimit: Range{LValue: 60, RValue: 70}, Percent: 10},
    		})
    ```
 

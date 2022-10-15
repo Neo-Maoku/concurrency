@@ -29,6 +29,13 @@ type goroutineParam struct {
 	TaskTimeOut   int                               //协程执行超时时间，单位为ms
 }
 
+//	需要开启CPU监控，该参数才生效
+type CPUParam struct {
+	CPULimit Range //cpu监控的区间，小于等于LValue就上涨，大于RValue就下跌
+	Percent  int   //上涨和下跌的百分比
+	FixedNum int   //固定的上涨和下跌值
+}
+
 type Task struct {
 	TaskParamsFunc ParamsFunc                        //任务参数生成的接口函数
 	TaskParams     []interface{}                     //任务参数集合
@@ -45,6 +52,7 @@ type Concurrency struct {
 	SysMonitor          bool        //是否需要监控cpu占用率，默认是开启的
 	TaskTimeOut         int         //协程执行超时时间，单位为ms,默认值为15000
 	LogLevel            int         //控制台打印等级，0:不输出任何信息，1:输出任务进度信息，>=2:输出所有信息。默认值为1
+	CPUInfo             CPUParam    //监控CPU的参数，默认Range为[60-70], 变动百分比为10
 	isGroupCountInt     bool        //判断TaskGroupCount类型
 	isGroupTimeSleepInt bool        //判断TaskGroupTimeSleep类型
 	taskStopSleep       bool        //判断是否处于暂停时间，用于和cpu监控联动
@@ -56,6 +64,11 @@ type Concurrency struct {
 func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 	maxGoroutineNum := c.GoroutineNumLimit
 	taskName := c.taskName
+	cpuInfo := c.CPUInfo
+	isFixed := false
+	if cpuInfo.Percent == 0 {
+		isFixed = true
+	}
 
 	for {
 		if p.IsClosed() {
@@ -63,29 +76,39 @@ func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 		}
 
 		if !c.taskStopSleep {
-			length := p.Cap()
+			number := p.Cap()
 
-			cpu := getCpuPercent()
-			c.logDebug("(%s) Concurrency cpu:%f", taskName, cpu)
+			cpu := int(getCpuPercent())
+			c.logDebug("(%s) Concurrency cpu:%d", taskName, cpu)
 
 			if cpu != 0 {
-				if cpu > 70 {
-					goroutineCount := int(math.Floor(float64(length) / 10.0 * 9))
+				var goroutineCount int
+
+				if cpu > cpuInfo.CPULimit.RValue {
+					if isFixed {
+						goroutineCount = number - cpuInfo.FixedNum
+					} else {
+						goroutineCount = int(math.Floor(float64(number * (100 - cpuInfo.Percent)) / 100))
+					}
 					if goroutineCount < 1 {
 						goroutineCount = 1
 					}
 					p.Tune(goroutineCount)
 
-					c.logDebug("(%s) Concurrency cpu dec, goroutinePoolCount:%d", taskName, goroutineCount)
-				} else if cpu <= 60 {
-					GoroutineCount := int(math.Ceil(float64(length) / 10.0 * 11))
-
-					if GoroutineCount > maxGoroutineNum {
-						GoroutineCount = maxGoroutineNum
+					c.logDebug("(%s) Concurrency cpu > %d, goroutine count dec, goroutinePoolCount:%d", taskName, cpuInfo.CPULimit.RValue, goroutineCount)
+				} else if cpu <= cpuInfo.CPULimit.LValue {
+					if isFixed {
+						goroutineCount = number + cpuInfo.FixedNum
+					} else {
+						goroutineCount = int(math.Floor(float64(number * (100 + cpuInfo.Percent)) / 100))
 					}
-					p.Tune(GoroutineCount)
 
-					c.logDebug("(%s) Concurrency cpu inc, goroutinePoolCount:%d", taskName, GoroutineCount)
+					if goroutineCount > maxGoroutineNum {
+						goroutineCount = maxGoroutineNum
+					}
+					p.Tune(goroutineCount)
+
+					c.logDebug("(%s) Concurrency cpu <= %d, goroutine count inc, goroutinePoolCount:%d", taskName, cpuInfo.CPULimit.LValue, goroutineCount)
 				}
 			}
 		}
@@ -251,6 +274,7 @@ func NewConcurrency(c Concurrency) *Concurrency {
 		SysMonitor:         false,
 		TaskTimeOut:        15000,
 		LogLevel:           0,
+		CPUInfo:            CPUParam{CPULimit: Range{LValue: 60, RValue: 70}, Percent: 10},
 	}
 
 	if c.TaskGroupCount != nil {
@@ -268,6 +292,10 @@ func NewConcurrency(c Concurrency) *Concurrency {
 	if c.TaskTimeOut != 0 {
 		tmp.TaskTimeOut = c.TaskTimeOut
 	}
+	if c.CPUInfo.CPULimit.RValue != 0 {
+		tmp.CPUInfo = c.CPUInfo
+	}
+
 	tmp.LogLevel = c.LogLevel
 	tmp.SysMonitor = c.SysMonitor
 	tmp.TaskTimeSleep = c.TaskTimeSleep
