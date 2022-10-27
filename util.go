@@ -44,13 +44,13 @@ func (c *Concurrency) initProgress(taskNum int) (result *[]int) {
 	return
 }
 
-func (c *Concurrency) progressPrint(taskFinishNum int, progress *[]int) {
+func (c *Concurrency) progressPrint(progress *[]int) {
 	for i, value := range *progress {
-		if value == taskFinishNum {
+		if value == c.taskFinishNum {
 			if i+1 == 10 {
 				c.logInfo(fmt.Sprintf("(%s) completed at %s, Takes %s times", c.taskName, time.Now().Format("15:04:05"), timeFormatByPoint(time.Now().Sub(c.startTime).String(), 2)))
 			} else {
-				c.logInfo(fmt.Sprintf("(%s) progress: %d/%d percentage: %d%%", c.taskName, taskFinishNum, (*progress)[9], (i+1)*10))
+				c.logInfo(fmt.Sprintf("(%s) progress: %d/%d percentage: %d%%", c.taskName, c.taskFinishNum, (*progress)[9], (i+1)*10))
 			}
 			break
 		}

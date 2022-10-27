@@ -58,6 +58,9 @@ type Concurrency struct {
 	taskStopSleep       bool        //判断是否处于暂停时间，用于和cpu监控联动
 	startTime           time.Time   //记录任务完成时，耗时情况
 	taskName            string      //任务名
+	taskTotalNum        int
+	taskFinishNum       int
+	taskRunning         bool
 }
 
 //性能监控（cpu占用率），当cpu>70，线程池在原有基础上降低10%。当cpu<60,线程池在原有基础上增加10%。
@@ -77,9 +80,7 @@ func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 
 		if !c.taskStopSleep {
 			number := p.Cap()
-
 			cpu := int(getCpuPercent())
-			c.logDebug("(%s) Concurrency cpu:%d", taskName, cpu)
 
 			if cpu != 0 {
 				var goroutineCount int
@@ -88,19 +89,19 @@ func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 					if isFixed {
 						goroutineCount = number - cpuInfo.FixedNum
 					} else {
-						goroutineCount = int(math.Floor(float64(number * (100 - cpuInfo.Percent)) / 100))
+						goroutineCount = int(math.Floor(float64(number*(100-cpuInfo.Percent)) / 100))
 					}
 					if goroutineCount < 1 {
 						goroutineCount = 1
 					}
 					p.Tune(goroutineCount)
 
-					c.logDebug("(%s) Concurrency cpu > %d, goroutine count dec, goroutinePoolCount:%d", taskName, cpuInfo.CPULimit.RValue, goroutineCount)
+					c.logDebug("(%s) Concurrency cpu(%d) > %d, goroutine count dec, goroutinePoolCount:%d", taskName, cpu, cpuInfo.CPULimit.RValue, goroutineCount)
 				} else if cpu <= cpuInfo.CPULimit.LValue {
 					if isFixed {
 						goroutineCount = number + cpuInfo.FixedNum
 					} else {
-						goroutineCount = int(math.Floor(float64(number * (100 + cpuInfo.Percent)) / 100))
+						goroutineCount = int(math.Floor(float64(number*(100+cpuInfo.Percent)) / 100))
 					}
 
 					if goroutineCount > maxGoroutineNum {
@@ -108,7 +109,7 @@ func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 					}
 					p.Tune(goroutineCount)
 
-					c.logDebug("(%s) Concurrency cpu <= %d, goroutine count inc, goroutinePoolCount:%d", taskName, cpuInfo.CPULimit.LValue, goroutineCount)
+					c.logDebug("(%s) Concurrency cpu(%d) <= %d, goroutine count inc, goroutinePoolCount:%d", taskName, cpu, cpuInfo.CPULimit.LValue, goroutineCount)
 				}
 			}
 		}
@@ -145,9 +146,9 @@ func (c *Concurrency) task(taskInterface interface{}) {
 
 func (c *Concurrency) Run(task Task) (results []interface{}) {
 	var wg = &sync.WaitGroup{}
-	var taskFinishNum = 0
-	var taskTotalNum = len(task.TaskParams)
 	var count = 0
+	c.taskFinishNum = 0
+	c.taskTotalNum = len(task.TaskParams)
 
 	_, c.isGroupCountInt = c.TaskGroupCount.(int)
 	_, c.isGroupTimeSleepInt = c.TaskGroupTimeSleep.(int)
@@ -171,37 +172,35 @@ func (c *Concurrency) Run(task Task) (results []interface{}) {
 	taskGroupCountResult, taskGroupTimeSleepResult := c.switchGoroutineValue()
 
 	var ch = make(chan interface{}, 10000)
-	if taskTotalNum == 0 {
+	if c.taskTotalNum == 0 {
 		if task.TaskParamsFunc != nil {
 			var taskTotal = make(chan int)
 
 			go task.TaskParamsFunc.ParamsCreate(ch, taskTotal)
 
-			taskTotalNum = <-taskTotal
+			c.taskTotalNum = <-taskTotal
 		}
 	} else {
 		close(ch)
 	}
 
-	if taskTotalNum == 0 {
+	if c.taskTotalNum == 0 {
 		c.logInfo(fmt.Sprintf("(%s) Warn: TaskNum is Zero", c.taskName))
 		return nil
 	}
 
 	var isShowProgress = false
-	if taskTotalNum / taskGroupCountResult >= 10 {
+	if c.taskTotalNum/taskGroupCountResult >= 10 {
 		isShowProgress = true
 	}
 
-	progress := c.initProgress(taskTotalNum)
+	progress := c.initProgress(c.taskTotalNum)
 
-	wg.Add(taskTotalNum)
+	wg.Add(c.taskTotalNum)
 
 	workFunc := func(param interface{}) {
-		taskFinishNum++
-
-		if isShowProgress && taskFinishNum != taskTotalNum {
-			c.progressPrint(taskFinishNum, progress)
+		if isShowProgress {
+			c.progressPrint(progress)
 		}
 
 		if count == taskGroupCountResult && taskGroupCountResult != 0 {
@@ -220,8 +219,11 @@ func (c *Concurrency) Run(task Task) (results []interface{}) {
 			c.logFault("newPoolWithFunc invoke fail")
 		}
 
+		c.taskFinishNum++
 		count++
 	}
+
+	c.taskRunning = true
 
 	if len(task.TaskParams) > 0 {
 		for _, param := range task.TaskParams {
@@ -239,9 +241,16 @@ func (c *Concurrency) Run(task Task) (results []interface{}) {
 
 	wg.Wait()
 
-	c.progressPrint(taskTotalNum, progress)
+	c.progressPrint(progress)
+	c.taskRunning = false
 
 	return results
+}
+
+func (c *Concurrency) PrintTaskProgress() {
+	if c.taskRunning {
+		c.logInfo(fmt.Sprintf("(%s) progress: %d/%d percentage: %s%%", c.taskName, c.taskFinishNum, c.taskTotalNum, fmt.Sprintf("%0.1f", float32(c.taskFinishNum)/float32(c.taskTotalNum)*100)))
+	}
 }
 
 func (c *Concurrency) switchGoroutineValue() (taskGroupCountResult, taskGroupTimeSleepResult int) {
