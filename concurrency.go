@@ -61,6 +61,7 @@ type Concurrency struct {
 	taskTotalNum        int
 	taskFinishNum       int
 	taskRunning         bool
+	curGoroutineNum		int
 }
 
 //性能监控（cpu占用率），当cpu>70，线程池在原有基础上降低10%。当cpu<60,线程池在原有基础上增加10%。
@@ -79,7 +80,7 @@ func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 		}
 
 		if !c.taskStopSleep {
-			number := p.Cap()
+			c.curGoroutineNum = p.Cap()
 			cpu := int(getCpuPercent())
 
 			if cpu != 0 {
@@ -87,9 +88,9 @@ func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 
 				if cpu > cpuInfo.CPULimit.RValue {
 					if isFixed {
-						goroutineCount = number - cpuInfo.FixedNum
+						goroutineCount = c.curGoroutineNum - cpuInfo.FixedNum
 					} else {
-						goroutineCount = int(math.Floor(float64(number*(100-cpuInfo.Percent)) / 100))
+						goroutineCount = int(math.Floor(float64(c.curGoroutineNum*(100-cpuInfo.Percent)) / 100))
 					}
 					if goroutineCount < 1 {
 						goroutineCount = 1
@@ -99,9 +100,9 @@ func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 					c.logDebug("(%s) Concurrency cpu(%d) > %d, goroutine count dec, goroutinePoolCount:%d", taskName, cpu, cpuInfo.CPULimit.RValue, goroutineCount)
 				} else if cpu <= cpuInfo.CPULimit.LValue {
 					if isFixed {
-						goroutineCount = number + cpuInfo.FixedNum
+						goroutineCount = c.curGoroutineNum + cpuInfo.FixedNum
 					} else {
-						goroutineCount = int(math.Floor(float64(number*(100+cpuInfo.Percent)) / 100))
+						goroutineCount = int(math.Floor(float64(c.curGoroutineNum*(100+cpuInfo.Percent)) / 100))
 					}
 
 					if goroutineCount > maxGoroutineNum {
@@ -249,7 +250,7 @@ func (c *Concurrency) Run(task Task) (results []interface{}) {
 
 func (c *Concurrency) PrintTaskProgress() {
 	if c.taskRunning {
-		c.logInfo(fmt.Sprintf("(%s) progress: %d/%d percentage: %s%%", c.taskName, c.taskFinishNum, c.taskTotalNum, fmt.Sprintf("%0.1f", float32(c.taskFinishNum)/float32(c.taskTotalNum)*100)))
+		c.logInfo(fmt.Sprintf("(%s) curGoroutine:%d progress: %d/%d percentage: %s%%", c.taskName, c.curGoroutineNum, c.taskFinishNum, c.taskTotalNum, fmt.Sprintf("%0.1f", float32(c.taskFinishNum)/float32(c.taskTotalNum)*100)))
 	}
 }
 
