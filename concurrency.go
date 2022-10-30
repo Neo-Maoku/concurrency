@@ -58,10 +58,10 @@ type Concurrency struct {
 	taskStopSleep       bool        //判断是否处于暂停时间，用于和cpu监控联动
 	startTime           time.Time   //记录任务完成时，耗时情况
 	taskName            string      //任务名
-	taskTotalNum        int
-	taskFinishNum       int
-	taskRunning         bool
-	curGoroutineNum		int
+	taskTotalNum        int			//总并发执行数量
+	taskFinishNum       int			//已完成的并发执行数量
+	taskRunning         bool		//是否在执行并发任务
+	curGoroutineNum		int			//正在运行的协程数
 }
 
 //性能监控（cpu占用率），当cpu>70，线程池在原有基础上降低10%。当cpu<60,线程池在原有基础上增加10%。
