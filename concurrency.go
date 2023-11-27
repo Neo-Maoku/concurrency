@@ -62,7 +62,7 @@ type Concurrency struct {
 	taskFinishNum       int         //已完成的并发执行数量
 	taskRunning         bool        //是否在执行并发任务
 	curGoroutineNum     int         //正在运行的协程数
-	showProgress        bool        //是否显示扫描进度
+	ShowProgress        bool        //是否显示扫描进度
 }
 
 // 性能监控（cpu占用率），当cpu>70，线程池在原有基础上降低10%。当cpu<60,线程池在原有基础上增加10%。
@@ -192,7 +192,7 @@ func (c *Concurrency) Run(task Task) (results []interface{}) {
 	}
 
 	var isShowProgress = false
-	if c.showProgress && c.taskTotalNum/taskGroupCountResult >= 10 {
+	if c.ShowProgress && c.taskTotalNum/taskGroupCountResult >= 10 {
 		isShowProgress = true
 	}
 
@@ -274,7 +274,7 @@ func (c *Concurrency) switchGoroutineValue() (taskGroupCountResult, taskGroupTim
 }
 
 func New() *Concurrency {
-	return NewConcurrency(Concurrency{LogLevel: 1, SysMonitor: true, TaskTimeSleep: Range{LValue: 0, RValue: 300}, showProgress: false})
+	return NewConcurrency(Concurrency{LogLevel: 1, SysMonitor: true, TaskTimeSleep: Range{LValue: 0, RValue: 300}, ShowProgress: false})
 }
 
 func NewConcurrency(c Concurrency) *Concurrency {
@@ -288,7 +288,7 @@ func NewConcurrency(c Concurrency) *Concurrency {
 		TaskTimeOut:        15000,
 		LogLevel:           0,
 		CPUInfo:            CPUParam{CPULimit: Range{LValue: 60, RValue: 70}, Percent: 10},
-		showProgress:       false,
+		ShowProgress:       false,
 	}
 
 	if c.TaskGroupCount != nil {
@@ -313,7 +313,7 @@ func NewConcurrency(c Concurrency) *Concurrency {
 	tmp.LogLevel = c.LogLevel
 	tmp.SysMonitor = c.SysMonitor
 	tmp.TaskTimeSleep = c.TaskTimeSleep
-	tmp.showProgress = c.showProgress
+	tmp.ShowProgress = c.ShowProgress
 
 	return &tmp
 }
