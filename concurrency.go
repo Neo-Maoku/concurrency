@@ -19,7 +19,7 @@ type ParamsFunc interface {
 	ParamsCreate(ch chan interface{}, taskTotal chan int)
 }
 
-//并发执行任务的单个参数结构
+// 并发执行任务的单个参数结构
 type goroutineParam struct {
 	Param         interface{}                       //协程执行需要的参数
 	Result        *[]interface{}                    //协程执行结果
@@ -29,7 +29,7 @@ type goroutineParam struct {
 	TaskTimeOut   int                               //协程执行超时时间，单位为ms
 }
 
-//	需要开启CPU监控，该参数才生效
+// 需要开启CPU监控，该参数才生效
 type CPUParam struct {
 	CPULimit Range //cpu监控的区间，小于等于LValue就上涨，大于RValue就下跌
 	Percent  int   //上涨和下跌的百分比
@@ -58,13 +58,14 @@ type Concurrency struct {
 	taskStopSleep       bool        //判断是否处于暂停时间，用于和cpu监控联动
 	startTime           time.Time   //记录任务完成时，耗时情况
 	taskName            string      //任务名
-	taskTotalNum        int			//总并发执行数量
-	taskFinishNum       int			//已完成的并发执行数量
-	taskRunning         bool		//是否在执行并发任务
-	curGoroutineNum		int			//正在运行的协程数
+	taskTotalNum        int         //总并发执行数量
+	taskFinishNum       int         //已完成的并发执行数量
+	taskRunning         bool        //是否在执行并发任务
+	curGoroutineNum     int         //正在运行的协程数
+	showProgress        bool        //是否显示扫描进度
 }
 
-//性能监控（cpu占用率），当cpu>70，线程池在原有基础上降低10%。当cpu<60,线程池在原有基础上增加10%。
+// 性能监控（cpu占用率），当cpu>70，线程池在原有基础上降低10%。当cpu<60,线程池在原有基础上增加10%。
 func (c *Concurrency) perfMonitor(p *ants.PoolWithFunc) {
 	maxGoroutineNum := c.GoroutineNumLimit
 	taskName := c.taskName
@@ -191,7 +192,7 @@ func (c *Concurrency) Run(task Task) (results []interface{}) {
 	}
 
 	var isShowProgress = false
-	if c.taskTotalNum/taskGroupCountResult >= 10 {
+	if c.showProgress && c.taskTotalNum/taskGroupCountResult >= 10 {
 		isShowProgress = true
 	}
 
@@ -242,7 +243,9 @@ func (c *Concurrency) Run(task Task) (results []interface{}) {
 
 	wg.Wait()
 
-	c.progressPrint(progress)
+	if isShowProgress {
+		c.progressPrint(progress)
+	}
 	c.taskRunning = false
 
 	return results
@@ -271,7 +274,7 @@ func (c *Concurrency) switchGoroutineValue() (taskGroupCountResult, taskGroupTim
 }
 
 func New() *Concurrency {
-	return NewConcurrency(Concurrency{LogLevel: 1, SysMonitor: true, TaskTimeSleep: Range{LValue: 0, RValue: 300}})
+	return NewConcurrency(Concurrency{LogLevel: 1, SysMonitor: true, TaskTimeSleep: Range{LValue: 0, RValue: 300}, showProgress: false})
 }
 
 func NewConcurrency(c Concurrency) *Concurrency {
@@ -285,6 +288,7 @@ func NewConcurrency(c Concurrency) *Concurrency {
 		TaskTimeOut:        15000,
 		LogLevel:           0,
 		CPUInfo:            CPUParam{CPULimit: Range{LValue: 60, RValue: 70}, Percent: 10},
+		showProgress:       false,
 	}
 
 	if c.TaskGroupCount != nil {
@@ -309,6 +313,7 @@ func NewConcurrency(c Concurrency) *Concurrency {
 	tmp.LogLevel = c.LogLevel
 	tmp.SysMonitor = c.SysMonitor
 	tmp.TaskTimeSleep = c.TaskTimeSleep
+	tmp.showProgress = c.showProgress
 
 	return &tmp
 }
